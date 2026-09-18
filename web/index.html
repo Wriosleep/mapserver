@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>地图瓦片服务器 · 转换算法验证</title>
+<link rel="stylesheet" href="leaflet.css">
+<script src="leaflet.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: #0d1b2a; color: #e6edf3;
+    font-family: "Microsoft YaHei", "Segoe UI", system-ui, sans-serif;
+  }
+  header { padding: 18px 24px 12px; border-bottom: 1px solid #1e3a52; }
+  h1 { margin: 0 0 6px; font-size: 19px; font-weight: 600; }
+  .sub { color: #8ba3ba; font-size: 13px; }
+
+  .bar {
+    display: flex; align-items: center; gap: 20px; flex-wrap: wrap;
+    padding: 12px 24px; background: #102537; border-bottom: 1px solid #1e3a52;
+  }
+  .bar .lbl { font-size: 13px; color: #8ba3ba; }
+  .bar label { display: flex; align-items: center; gap: 8px; font-size: 14px; cursor: pointer; }
+  .bar input[type=checkbox] { width: 16px; height: 16px; cursor: pointer; }
+
+  .seg { display: inline-flex; border: 1px solid #2a4d6e; border-radius: 5px; overflow: hidden; }
+  .seg button {
+    background: #0d1b2a; color: #8ba3ba; border: 0; padding: 6px 14px;
+    font-size: 13px; cursor: pointer; font-family: inherit; transition: .15s;
+  }
+  .seg button + button { border-left: 1px solid #2a4d6e; }
+  .seg button:hover { color: #cfe1f2; }
+  .seg button.on { background: #1d4d7a; color: #fff; }
+
+  .status { margin-left: auto; font-size: 13px; padding: 5px 12px; border-radius: 4px; }
+  .ok  { background: #14361f; color: #6ee7a0; border: 1px solid #235c36; }
+  .bad { background: #3a1518; color: #ff8b8b; border: 1px solid #6b2429; }
+  .warn{ background: #3a3216; color: #ffd76e; border: 1px solid #6b5b24; }
+
+  .maps { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: #1e3a52; }
+  .pane { background: #0d1b2a; }
+  .pane h2 {
+    margin: 0; padding: 10px 16px; font-size: 12.5px; font-weight: 500;
+    color: #8ba3ba; border-bottom: 1px solid #16304a;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .pane h2 code { color: #ffc400; background: none; font-size: 12.5px; }
+  .map { height: calc(100vh - 200px); min-height: 300px; background: #16283a; }
+
+  footer { padding: 12px 24px; font-size: 12.5px; color: #7c93a9; line-height: 1.75; }
+  footer b { color: #b9cfe2; }
+  footer code { color: #ffc400; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>地图瓦片服务器 · 转换算法验证</h1>
+  <div class="sub">左:切片原始产物(谷歌 XYZ) &nbsp;·&nbsp; 右:转换后的产物(TMS),数据源可切换</div>
+</header>
+
+<div class="bar">
+  <span class="lbl">右侧数据源</span>
+  <div class="seg" id="seg-source">
+    <button data-src="local" class="on">本地文件</button>
+    <button data-src="vm">VM 上的 Apache</button>
+  </div>
+  <label>
+    <input type="checkbox" id="chk-tms" checked>
+    按 <b>TMS</b> 规则读取
+  </label>
+  <label>
+    <input type="checkbox" id="chk-sync" checked>
+    视角同步
+  </label>
+  <div class="status ok" id="status">两侧应当完全一致</div>
+</div>
+
+<div class="maps">
+  <div class="pane">
+    <h2>本地 tiles_xyz/{z}/{x}/{y}.png &nbsp;—&nbsp; <code>tms: false</code></h2>
+    <div class="map" id="map-xyz"></div>
+  </div>
+  <div class="pane">
+    <h2 id="src-label">—</h2>
+    <div class="map" id="map-tms"></div>
+  </div>
+</div>
+
+<footer>
+  <b>验证一(转换算法):</b>左侧与右侧内容应当完全一致。取消勾选「TMS 规则」,右侧会<b>上下颠倒</b> ——
+  因为 TMS 目录里的瓦片已按 <code>y = 2<sup>z</sup> - 1 - y</code> 重编号,再用 XYZ 规则读就对不上了。<br>
+  <b>验证二(服务器):</b>把数据源切到「VM 上的 Apache」,瓦片改由虚拟机里的 httpd 提供。
+  如果画面和本地一模一样,说明 Apache 部署正确、SELinux 标签正确、防火墙放行正确。<br>
+  <span style="color:#5e7a94">切换到 VM 源后若画面空白,先确认虚拟机开机、且 <code>firewall-cmd --list-services</code> 里有 http。</span>
+</footer>
+
+<script>
+// VM 的 IP 变了就改这里
+const VM_BASE = 'http://192.168.247.129';
+
+const SOURCES = {
+  local: { label: '本地 tiles_tms/',       url: '../tiles_tms/{z}/{x}/{y}.png' },
+  vm:    { label: 'VM Apache /tiles/',     url: VM_BASE + '/tiles/{z}/{x}/{y}.png' },
+};
+
+const START = { center: [25, -20], zoom: 2 };
+// maxNativeZoom 指"瓦片真正存在的最高级别",超出后 Leaflet 会拉伸上一级瓦片显示,
+// 而不是去请求不存在的文件(否则 4~6 级会一片空白)
+const TILE_OPTS = { minZoom: 0, maxZoom: 8, maxNativeZoom: 5, noWrap: true, attribution: "" };
+
+const mapXyz = L.map('map-xyz', { ...START, attributionControl: false });
+L.tileLayer('../tiles_xyz/{z}/{x}/{y}.png', { ...TILE_OPTS, tms: false }).addTo(mapXyz);
+
+const mapTms = L.map('map-tms', { ...START, attributionControl: false });
+let tmsLayer = null;
+let curSource = 'local';
+
+// ---------------------------------------------------------------
+// 地标点 —— 由【客户端】绘制,不画进瓦片
+//
+// 这是 Web GIS 的标准分工:瓦片负责底图,标记/矢量要素由浏览器叠加。
+// 好处是标记不会随瓦片缩放变形,而且换个底图源,标记照样在。
+//
+// 顺带多了一个验证手段:底图如果上下颠倒,【标记点不会跟着动】,
+// 于是「北京」这个点会落在地图下半部分 —— 一眼就能看出不对。
+// ---------------------------------------------------------------
+const LANDMARKS = [
+  ["北京", 116.40, 39.90],
+  ["上海", 121.47, 31.23],
+  ["广州", 113.26, 23.13],
+  ["南昌", 115.86, 28.68],
+  ["乌鲁木齐", 87.62, 43.83],
+  ["拉萨", 91.11, 29.65],
+  ["伦敦", -0.13, 51.51],
+  ["纽约", -74.01, 40.71],
+  ["悉尼", 151.21, -33.87],
+  ["开普敦", 18.42, -33.92],
+];
+
+function addLandmarks(map) {
+  LANDMARKS.forEach(([name, lon, lat]) => {
+    L.circleMarker([lat, lon], {
+      radius: 5, color: "#ffffff", weight: 2,
+      fillColor: "#e8590c", fillOpacity: 1,
+    }).addTo(map).bindTooltip(name, { direction: "top", offset: [0, -6] });
+  });
+}
+addLandmarks(mapXyz);
+addLandmarks(mapTms);
+
+function render() {
+  const src = SOURCES[curSource];
+  const useTms = document.getElementById('chk-tms').checked;
+
+  if (tmsLayer) mapTms.removeLayer(tmsLayer);
+  // 唯一的布尔值差异:同一个瓦片目录,规则一换,地图就翻个个儿
+  tmsLayer = L.tileLayer(src.url, { ...TILE_OPTS, tms: useTms }).addTo(mapTms);
+
+  document.getElementById('src-label').innerHTML =
+    src.label + '{z}/{x}/{y}.png &nbsp;—&nbsp; <code>tms: ' + useTms + '</code>';
+
+  const st = document.getElementById('status');
+  if (!useTms) {
+    st.textContent = '右侧已颠倒 —— 这正是漏掉 Y 翻转的后果';
+    st.className = 'status bad';
+  } else if (curSource === 'vm') {
+    st.textContent = '瓦片来自虚拟机 Apache';
+    st.className = 'status warn';
+  } else {
+    st.textContent = '两侧应当完全一致';
+    st.className = 'status ok';
+  }
+}
+
+// 数据源切换
+document.getElementById('seg-source').addEventListener('click', (e) => {
+  const btn = e.target.closest('button');
+  if (!btn) return;
+  curSource = btn.dataset.src;
+  [...btn.parentNode.children].forEach(b => b.classList.toggle('on', b === btn));
+  render();
+});
+
+// 视角同步
+let syncing = false;
+function link(a, b) {
+  a.on('move', () => {
+    if (!document.getElementById('chk-sync').checked || syncing) return;
+    syncing = true;
+    b.setView(a.getCenter(), a.getZoom(), { animate: false });
+    syncing = false;
+  });
+}
+link(mapXyz, mapTms);
+link(mapTms, mapXyz);
+
+document.getElementById('chk-tms').addEventListener('change', render);
+render();
+</script>
+
+</body>
+</html>

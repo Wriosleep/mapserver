@@ -1,0 +1,11 @@
+# 换行符统一:仓库里一律存 LF,检出到 Windows 时由 git 自动转换。
+# 不设这个的话,Windows 上编辑过的文件会把整份文件标成"已修改",
+# 实际只是每行末尾多了个 \r,diff 里什么都看不出来。
+* text=auto
+
+# 图片一律按二进制处理,不要试图做换行符转换
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary

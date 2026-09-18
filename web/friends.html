@@ -1,0 +1,734 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>地球Online · 朋友收集器</title>
+<link rel="stylesheet" href="leaflet.css">
+<script src="leaflet.js"></script>
+<script src="locations.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+
+  body {
+    background: #0b1622; color: #e6edf3; overflow: hidden;
+    font-family: "Microsoft YaHei", "Segoe UI", system-ui, sans-serif;
+  }
+
+  #map { position: fixed; inset: 0; background: #16283a; }
+
+  /* ---------- 顶部标题 ---------- */
+  .hud-top {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 1000;
+    padding: 18px 26px 30px;
+    background: linear-gradient(180deg, rgba(11,22,34,.92) 0%, rgba(11,22,34,0) 100%);
+    pointer-events: none;
+  }
+  .hud-top h1 {
+    margin: 0; font-size: 22px; font-weight: 700; letter-spacing: .5px;
+    text-shadow: 0 2px 12px rgba(0,0,0,.6);
+  }
+  .hud-top h1 .hl { color: #4dd0e1; text-shadow: 0 0 18px rgba(77,208,225,.55); }
+  .hud-top .sub {
+    margin-top: 5px; font-size: 13px; color: #8ba3ba;
+    text-shadow: 0 1px 8px rgba(0,0,0,.8);
+  }
+  .hud-top .sub b { color: #ffc400; font-weight: 600; }
+
+  /* ---------- 右侧朋友列表 ---------- */
+  .hud-list {
+    position: fixed; top: 92px; right: 18px; z-index: 1000;
+    width: 236px; display: flex; flex-direction: column; gap: 10px;
+    max-height: calc(100vh - 210px); overflow-y: auto;
+  }
+  .card {
+    background: rgba(16,37,55,.88);
+    border: 1px solid #24455f; border-radius: 10px;
+    padding: 12px 14px; cursor: pointer;
+    backdrop-filter: blur(8px);
+    transition: .18s; position: relative; overflow: hidden;
+  }
+  .card::before {
+    content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+    background: linear-gradient(180deg, #4dd0e1, #2b7f8f);
+  }
+  .card:hover {
+    background: rgba(25,58,84,.95);
+    border-color: #3a7fa8; transform: translateX(-4px);
+  }
+  .card .row1 { display: flex; align-items: center; gap: 8px; }
+  .card .emoji { font-size: 17px; line-height: 1; }
+  .card .name { font-size: 15px; font-weight: 600; }
+  .card .city { font-size: 12px; color: #7c93a9; margin-top: 3px; }
+  .card .status {
+    font-size: 12.5px; color: #ffd76e; margin-top: 7px;
+    padding-top: 7px; border-top: 1px dashed #24455f;
+  }
+  .card .live {
+    margin-left: auto; font-size: 10px; color: #6ee7a0;
+    display: flex; align-items: center; gap: 4px;
+  }
+  .card .live::before {
+    content: ""; width: 6px; height: 6px; border-radius: 50%;
+    background: #6ee7a0; box-shadow: 0 0 8px #6ee7a0;
+    animation: blink 1.8s ease-in-out infinite;
+  }
+  .card .del {
+    position: absolute; top: 7px; right: 8px;
+    width: 20px; height: 20px; line-height: 17px; text-align: center;
+    border-radius: 5px; border: 0; background: transparent;
+    color: #4a6580; font-size: 16px; cursor: pointer; opacity: 0;
+    transition: .15s; font-family: inherit;
+  }
+  .card:hover .del { opacity: 1; }
+  .card .del:hover { background: #3a1518; color: #ff8b8b; }
+  @keyframes blink { 0%,100% { opacity: 1 } 50% { opacity: .25 } }
+
+  /* ---------- 地图上的朋友标记 ---------- */
+  .pin { position: relative; width: 34px; height: 34px; }
+  .pin .ring {
+    position: absolute; inset: 0; border-radius: 50%;
+    border: 2px solid #4dd0e1;
+    animation: pulse 2.4s ease-out infinite;
+  }
+  .pin .dot {
+    position: absolute; inset: 3px; border-radius: 50%;
+    background: #102537; border: 2px solid #4dd0e1;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 14px;
+    box-shadow: 0 0 14px rgba(77,208,225,.6);
+  }
+  @keyframes pulse {
+    0%   { transform: scale(.75); opacity: .9; }
+    100% { transform: scale(2.1); opacity: 0; }
+  }
+
+  /* ---------- 弹窗 ---------- */
+  .leaflet-popup-content-wrapper, .leaflet-popup-tip {
+    background: rgba(16,37,55,.97); color: #e6edf3;
+    border: 1px solid #2a4d6e; box-shadow: 0 8px 28px rgba(0,0,0,.55);
+  }
+  .leaflet-popup-content { margin: 13px 16px; line-height: 1.65; }
+  .leaflet-popup-close-button { color: #7c93a9 !important; }
+  .pop-name { font-size: 15px; font-weight: 600; }
+  .pop-city { font-size: 12px; color: #7c93a9; margin-top: 2px; }
+  .pop-status {
+    font-size: 13.5px; color: #ffd76e; margin-top: 8px;
+    padding-top: 8px; border-top: 1px dashed #24455f;
+  }
+
+  /* ---------- 左下:瓦片来源 ---------- */
+  .src { position: fixed; left: 18px; bottom: 92px; z-index: 1000; }
+  .src .cap {
+    font-size: 11px; color: #7c93a9; margin-bottom: 6px;
+    letter-spacing: .6px; text-shadow: 0 1px 6px rgba(0,0,0,.9);
+  }
+  .src .seg {
+    display: inline-flex; border: 1px solid #24455f; border-radius: 8px;
+    overflow: hidden; background: rgba(16,37,55,.88);
+    backdrop-filter: blur(8px); box-shadow: 0 4px 18px rgba(0,0,0,.4);
+  }
+  .src button {
+    background: transparent; color: #8ba3ba; border: 0;
+    padding: 8px 15px; font-size: 12.5px; cursor: pointer;
+    font-family: inherit; transition: .15s;
+  }
+  .src button + button { border-left: 1px solid #24455f; }
+  .src button:hover { color: #cfe1f2; background: rgba(30,58,82,.6); }
+  .src button.on { background: #1d4d7a; color: #fff; }
+
+  /* ---------- 悬浮的加人按钮 ---------- */
+  .fab {
+    position: fixed; right: 26px; bottom: 26px; z-index: 1500;
+    width: 56px; height: 56px; border-radius: 50%;
+    border: 1px solid #3a7fa8;
+    background: linear-gradient(145deg, #1d4d7a, #12324f);
+    color: #cfe9f5; font-size: 27px; line-height: 1; padding-bottom: 2px;
+    cursor: pointer;
+    box-shadow: 0 6px 24px rgba(0,0,0,.6), 0 0 22px rgba(77,208,225,.28);
+    transition: .18s;
+  }
+  .fab:hover {
+    transform: scale(1.08);
+    box-shadow: 0 8px 30px rgba(0,0,0,.65), 0 0 34px rgba(77,208,225,.5);
+  }
+  .fab:active { transform: scale(.95); }
+
+  /* ---------- 加人面板 ---------- */
+  .modal {
+    position: fixed; inset: 0; z-index: 2000;
+    background: rgba(4,10,17,.72); backdrop-filter: blur(3px);
+    display: none; align-items: center; justify-content: center;
+    padding: 20px;
+  }
+  .modal.show { display: flex; }
+  .panel {
+    width: 100%; max-width: 430px; max-height: 90vh; overflow-y: auto;
+    background: #102537; border: 1px solid #2a4d6e; border-radius: 14px;
+    padding: 22px 24px; box-shadow: 0 20px 60px rgba(0,0,0,.7);
+  }
+  .panel h3 {
+    margin: 0 0 4px; font-size: 17px; font-weight: 600;
+  }
+  .panel .tip { font-size: 12px; color: #7c93a9; margin-bottom: 18px; }
+  .field { margin-bottom: 15px; }
+  .field label {
+    display: block; font-size: 12.5px; color: #8ba3ba; margin-bottom: 6px;
+  }
+  .field input {
+    width: 100%; padding: 9px 12px;
+    background: #0b1622; border: 1px solid #24455f; border-radius: 8px;
+    color: #e6edf3; font-size: 14px; font-family: inherit;
+    outline: none; transition: .15s;
+  }
+  .field input:focus { border-color: #4dd0e1; box-shadow: 0 0 0 3px rgba(77,208,225,.12); }
+  .field input::placeholder { color: #4a6580; }
+  .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+  .hint { font-size: 11.5px; color: #7c93a9; margin-top: 7px; min-height: 15px; }
+  .hint.ok { color: #6ee7a0; }
+  .hint.bad { color: #ff8b8b; }
+
+  .icons { display: flex; flex-wrap: wrap; gap: 6px; }
+  .ico {
+    width: 36px; height: 36px; border-radius: 8px;
+    background: #0b1622; border: 1px solid #24455f;
+    font-size: 17px; cursor: pointer; transition: .13s;
+    display: flex; align-items: center; justify-content: center;
+    padding: 0;
+  }
+  .ico:hover { border-color: #3a7fa8; transform: translateY(-2px); }
+  .ico.on { background: #1d4d7a; border-color: #4dd0e1; box-shadow: 0 0 12px rgba(77,208,225,.35); }
+
+  .quick { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .quick button {
+    padding: 4px 11px; border-radius: 20px;
+    background: #0b1622; border: 1px solid #24455f;
+    color: #8ba3ba; font-size: 12px; cursor: pointer;
+    font-family: inherit; transition: .13s;
+  }
+  .quick button:hover { border-color: #3a7fa8; color: #cfe1f2; }
+
+  /* ---------- 右键菜单 ---------- */
+  .ctxmenu {
+    position: fixed; z-index: 3000; display: none;
+    min-width: 124px; padding: 4px;
+    background: #102537; border: 1px solid #2a4d6e; border-radius: 9px;
+    box-shadow: 0 10px 34px rgba(0,0,0,.7);
+  }
+  .ctxmenu.show { display: block; }
+  .ctxmenu button {
+    display: block; width: 100%; text-align: left;
+    background: transparent; border: 0; border-radius: 6px;
+    color: #cfe1f2; padding: 8px 12px; font-size: 13px;
+    cursor: pointer; font-family: inherit; transition: .12s;
+  }
+  .ctxmenu button:hover { background: #1d4d7a; }
+  .ctxmenu button.danger { color: #ff8b8b; }
+  .ctxmenu button.danger:hover { background: #3a1518; }
+  .ctxmenu .sep { height: 1px; background: #24455f; margin: 4px 6px; }
+
+  .actions { display: flex; gap: 10px; margin-top: 22px; }
+  .actions button {
+    flex: 1; padding: 11px; border-radius: 9px; border: 0;
+    font-size: 14px; font-family: inherit; cursor: pointer; transition: .15s;
+  }
+  .btn-cancel { background: #16283a; color: #8ba3ba; border: 1px solid #24455f !important; }
+  .btn-cancel:hover { color: #cfe1f2; border-color: #3a7fa8 !important; }
+  .btn-add {
+    background: linear-gradient(145deg, #1d4d7a, #17405f); color: #d6ecf7;
+    border: 1px solid #3a7fa8 !important; font-weight: 600;
+  }
+  .btn-add:hover { box-shadow: 0 0 20px rgba(77,208,225,.35); }
+
+  .hud-list::-webkit-scrollbar, .panel::-webkit-scrollbar { width: 5px; }
+  .hud-list::-webkit-scrollbar-thumb, .panel::-webkit-scrollbar-thumb {
+    background: #24455f; border-radius: 3px;
+  }
+</style>
+</head>
+<body>
+
+<div id="map"></div>
+
+<div class="hud-top">
+  <h1>地球<span class="hl">Online</span></h1>
+  <div class="sub">朋友收集器 &nbsp;·&nbsp; 已收集 <b id="count">0</b> 位</div>
+</div>
+
+<div class="hud-list" id="list"></div>
+
+<div class="src">
+  <div class="cap">瓦片来源</div>
+  <div class="seg" id="srcseg">
+    <button data-src="local" class="on">本地文件</button>
+    <button data-src="vm">VM 服务器</button>
+  </div>
+</div>
+
+<button class="fab" id="fab" title="添加朋友">+</button>
+
+<div class="ctxmenu" id="ctxmenu">
+  <button data-act="edit">编辑资料</button>
+  <button data-act="pan">定位过去</button>
+  <div class="sep"></div>
+  <button data-act="del" class="danger">从地图移除</button>
+</div>
+
+<div class="modal" id="modal">
+  <div class="panel">
+    <h3>添加朋友</h3>
+    <div class="tip">选个地点,坐标会自动填好</div>
+
+    <div class="field">
+      <label>名字</label>
+      <input id="f-name" placeholder="他/她叫什么" maxlength="20">
+    </div>
+
+    <div class="field">
+      <label>地点(输入会自动补全)</label>
+      <input id="f-city" list="citylist" placeholder="比如:杭州 / 腾冲" autocomplete="off">
+      <datalist id="citylist"></datalist>
+      <div class="hint" id="loc-hint"></div>
+    </div>
+
+    <div class="field">
+      <label>经纬度(地点库里没有的话,直接填这里)</label>
+      <div class="pair">
+        <input id="f-lon" type="number" step="0.0001" placeholder="经度 如 120.16">
+        <input id="f-lat" type="number" step="0.0001" placeholder="纬度 如 33.35">
+      </div>
+    </div>
+
+    <div class="field">
+      <label>图标</label>
+      <div class="icons" id="f-icons"></div>
+    </div>
+
+    <div class="field">
+      <label>此刻在做什么</label>
+      <input id="f-status" placeholder="比如:正在买奶茶喝" maxlength="30">
+      <div class="quick" id="f-quick"></div>
+    </div>
+
+    <div class="actions">
+      <button class="btn-cancel" id="btn-cancel">取消</button>
+      <button class="btn-add" id="btn-add">放到地图上</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// 地点库放在 locations.js 里(数据与逻辑分家),加地点只改那个文件
+const LOCATIONS = window.LOCATIONS || [];
+
+// ===============================================================
+//  朋友档案:内置的三位 + 你自己加的(存在浏览器本地)
+// ===============================================================
+// 演示用的默认名单。
+// 想换成自己人,直接在页面上右键编辑,或者改这里 ——
+// 注意:页面优先读浏览器里的存档(localStorage),改了这里要先清掉存档才生效:
+//     localStorage.removeItem('earth-online-friends')
+const DEFAULT_FRIENDS = [
+  { name: "A", emoji: "🧋", lon: 120.1600, lat: 33.3500, city: "江苏 · 盐城", status: "已经喝完奶茶" },
+  { name: "B", emoji: "📚", lon: 116.4074, lat: 39.9042, city: "北京",        status: "在上课" },
+  { name: "C", emoji: "✏️", lon: 114.0579, lat: 22.5431, city: "广东 · 深圳", status: "在上课" },
+  { name: "D", emoji: "💻", lon: 114.3055, lat: 30.5928, city: "湖北 · 武汉", status: "在打代码" },
+  { name: "E", emoji: "🎨", lon: 102.8329, lat: 24.8801, city: "云南 · 昆明", status: "画画" },
+];
+
+const STORE_KEY = 'earth-online-friends';
+
+function loadFriends() {
+  try {
+    const raw = localStorage.getItem(STORE_KEY);
+    if (raw) {
+      const arr = JSON.parse(raw);
+      if (Array.isArray(arr) && arr.length) return arr;
+    }
+  } catch (e) {
+    console.warn('本地存档读取失败,用默认名单', e);
+  }
+  return DEFAULT_FRIENDS.map((f) => ({ ...f }));
+}
+
+function saveFriends() {
+  try {
+    localStorage.setItem(STORE_KEY, JSON.stringify(FRIENDS));
+  } catch (e) {
+    console.warn('本地存档写入失败(无痕模式?)', e);
+  }
+}
+
+let FRIENDS = loadFriends();
+
+// ===============================================================
+//  地图
+// ===============================================================
+const SOURCES = {
+  local: '../tiles_tms/{z}/{x}/{y}.png',
+  vm:    'http://192.168.247.129/tiles/{z}/{x}/{y}.png',
+};
+let curSource = 'local';
+
+const map = L.map('map', {
+  center: [20, 0], zoom: 2,
+  zoomControl: false, attributionControl: false,
+});
+L.control.zoom({ position: 'bottomleft' }).addTo(map);
+
+let tileLayer = null;
+function renderTiles() {
+  if (tileLayer) map.removeLayer(tileLayer);
+  tileLayer = L.tileLayer(SOURCES[curSource], {
+    minZoom: 0, maxZoom: 8, maxNativeZoom: 5,
+    tms: true, noWrap: true,
+  }).addTo(map);
+}
+renderTiles();
+
+document.getElementById('srcseg').addEventListener('click', (e) => {
+  const btn = e.target.closest('button');
+  if (!btn) return;
+  curSource = btn.dataset.src;
+  [...btn.parentNode.children].forEach(b => b.classList.toggle('on', b === btn));
+  renderTiles();
+});
+
+// ===============================================================
+//  渲染朋友(地图标记 + 右侧卡片)
+// ===============================================================
+const friendLayer = L.layerGroup().addTo(map);
+const listEl = document.getElementById('list');
+const countEl = document.getElementById('count');
+let markerList = [];
+
+function renderFriends() {
+  friendLayer.clearLayers();
+  markerList = [];
+  listEl.innerHTML = '';
+
+  FRIENDS.forEach((f, idx) => {
+    const icon = L.divIcon({
+      className: '',
+      html: `<div class="pin"><div class="ring"></div><div class="dot">${f.emoji}</div></div>`,
+      iconSize: [34, 34], iconAnchor: [17, 17],
+    });
+
+    const marker = L.marker([f.lat, f.lon], { icon })
+      .bindPopup(`
+        <div class="pop-name">${f.emoji} ${f.name}</div>
+        <div class="pop-city">${f.city}</div>
+        <div class="pop-status">${f.status}</div>
+      `);
+
+    // 右键这个点 → 弹出菜单。stopPropagation 是为了别让 document 上的监听
+    // 立刻把刚打开菜单又关掉(原生事件还会继续冒泡到 document)
+    marker.on('contextmenu', (ev) => {
+      const oe = ev.originalEvent;
+      oe.preventDefault();
+      oe.stopPropagation();
+      showCtx(oe.clientX, oe.clientY, idx);
+    });
+
+    marker.addTo(friendLayer);
+    markerList.push(marker);
+
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.innerHTML = `
+      <button class="del" title="移除">×</button>
+      <div class="row1">
+        <span class="emoji">${f.emoji}</span>
+        <span class="name">${f.name}</span>
+        <span class="live">在线</span>
+      </div>
+      <div class="city">${f.city}</div>
+      <div class="status">${f.status}</div>
+    `;
+
+    card.querySelector('.del').addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      if (!confirm(`把「${f.name}」从地图上移除?`)) return;
+      FRIENDS.splice(idx, 1);
+      saveFriends();
+      renderFriends();
+    });
+
+    card.addEventListener('click', () => {
+      map.flyTo([f.lat, f.lon], 5, { duration: 1.1 });
+      setTimeout(() => marker.openPopup(), 1150);
+    });
+
+    // 卡片上同样支持右键
+    card.addEventListener('contextmenu', (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      showCtx(ev.clientX, ev.clientY, idx);
+    });
+
+    listEl.appendChild(card);
+  });
+
+  countEl.textContent = FRIENDS.length;
+}
+
+renderFriends();
+
+// ===============================================================
+//  加人面板
+// ===============================================================
+const modal    = document.getElementById('modal');
+const nameIn   = document.getElementById('f-name');
+const cityIn   = document.getElementById('f-city');
+const lonIn    = document.getElementById('f-lon');
+const latIn    = document.getElementById('f-lat');
+const statusIn = document.getElementById('f-status');
+const hintEl   = document.getElementById('loc-hint');
+
+// 图标候选
+const EMOJIS = ['🧋','📚','✏️','🎮','🍜','😴','🏃','💼','🎧','☕','🍕','🎓','🏠','🚗','🎤','⚽'];
+let pickedEmoji = EMOJIS[0];
+const iconsBox = document.getElementById('f-icons');
+EMOJIS.forEach((e, i) => {
+  const b = document.createElement('button');
+  b.className = 'ico' + (i === 0 ? ' on' : '');
+  b.textContent = e;
+  b.addEventListener('click', () => {
+    pickedEmoji = e;
+    [...iconsBox.children].forEach(c => c.classList.toggle('on', c === b));
+  });
+  iconsBox.appendChild(b);
+});
+
+// 常用状态
+const QUICKS = ['在上课','在吃饭','在睡觉','在摸鱼','在路上','在打游戏','在加班','在图书馆'];
+const quickBox = document.getElementById('f-quick');
+QUICKS.forEach((q) => {
+  const b = document.createElement('button');
+  b.textContent = q;
+  b.addEventListener('click', () => { statusIn.value = q; });
+  quickBox.appendChild(b);
+});
+
+// 地点自动补全的数据源
+const datalist = document.getElementById('citylist');
+LOCATIONS.forEach((l) => {
+  const o = document.createElement('option');
+  o.value = l.name;
+  o.label = l.city;
+  datalist.appendChild(o);
+});
+
+// 输入地点 → 自动填坐标
+function lookupLocation() {
+  const q = cityIn.value.trim();
+  if (!q) { hintEl.textContent = ''; return; }
+
+  const hit = LOCATIONS.find((l) => l.name === q);
+  if (hit) {
+    lonIn.value = hit.lon;
+    latIn.value = hit.lat;
+    hintEl.textContent = `已定位 · ${hit.city}(${hit.lon.toFixed(4)}, ${hit.lat.toFixed(4)})`;
+    hintEl.className = 'hint ok';
+  } else if (lonIn.value && latIn.value) {
+    hintEl.textContent = '地点库里没有,用你填的经纬度';
+    hintEl.className = 'hint';
+  } else {
+    hintEl.textContent = '地点库里没有这个,请在下面直接填经纬度';
+    hintEl.className = 'hint bad';
+  }
+}
+cityIn.addEventListener('input', lookupLocation);
+// 手改经纬度时,别让地点的自动填充把它盖掉
+lonIn.addEventListener('input', () => { cityIn.value = ''; hintEl.textContent = '使用手动填写的坐标'; hintEl.className = 'hint'; });
+latIn.addEventListener('input', () => { cityIn.value = ''; hintEl.textContent = '使用手动填写的坐标'; hintEl.className = 'hint'; });
+
+// editingIdx:null 表示「新增」,数字表示正在编辑名单里的第几位
+let editingIdx = null;
+
+const panelTitle = document.querySelector('.panel h3');
+const addBtn     = document.querySelector('.btn-add');
+
+function resetForm() {
+  [nameIn, cityIn, lonIn, latIn, statusIn].forEach(i => i.value = '');
+  hintEl.textContent = '';
+  pickedEmoji = EMOJIS[0];
+  // 清掉「编辑时临时补进来的图标按钮」,再把默认图标点亮
+  [...iconsBox.querySelectorAll('[data-temp]')].forEach(b => b.remove());
+  [...iconsBox.children].forEach(c => c.classList.toggle('on', c.textContent === EMOJIS[0]));
+}
+
+function openModal(friend, idx) {
+  editingIdx = (typeof idx === 'number') ? idx : null;
+
+  if (editingIdx === null) {
+    // ---- 新增模式 ----
+    resetForm();
+    panelTitle.textContent = '添加朋友';
+    addBtn.textContent = '放到地图上';
+  } else {
+    // ---- 编辑模式:把现有资料填回表单 ----
+    nameIn.value   = friend.name;
+    statusIn.value = friend.status;
+    lonIn.value    = friend.lon;
+    latIn.value    = friend.lat;
+
+    const loc = LOCATIONS.find((l) => l.city === friend.city);
+    cityIn.value = loc ? loc.name : '';
+    hintEl.textContent = `正在编辑「${friend.name}」· ${friend.city}`;
+    hintEl.className = 'hint ok';
+
+    // 选中原来的图标
+    pickedEmoji = friend.emoji;
+    let matched = false;
+    [...iconsBox.children].forEach((c) => {
+      const on = c.textContent === friend.emoji;
+      if (on) matched = true;
+      c.classList.toggle('on', on);
+    });
+    if (!matched) {
+      // 存档里的图标不在候选列表里(比如手改过数据),临时补一个进去
+      const b = document.createElement('button');
+      b.className = 'ico on';
+      b.dataset.temp = '1';
+      b.textContent = friend.emoji;
+      b.addEventListener('click', () => {
+        pickedEmoji = friend.emoji;
+        [...iconsBox.children].forEach(c => c.classList.toggle('on', c === b));
+      });
+      iconsBox.insertBefore(b, iconsBox.firstChild);
+    }
+
+    panelTitle.textContent = '编辑资料';
+    addBtn.textContent = '保存修改';
+  }
+
+  modal.classList.add('show');
+  setTimeout(() => nameIn.focus(), 60);
+}
+
+function closeModal() {
+  modal.classList.remove('show');
+  editingIdx = null;
+  resetForm();
+}
+
+document.getElementById('fab').addEventListener('click', () => openModal());
+document.getElementById('btn-cancel').addEventListener('click', closeModal);
+modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && modal.classList.contains('show')) closeModal();
+});
+
+document.getElementById('btn-add').addEventListener('click', () => {
+  const name = nameIn.value.trim();
+  if (!name) { nameIn.focus(); hintEl.textContent = '先给这位起个名字'; hintEl.className = 'hint bad'; return; }
+
+  const lon = parseFloat(lonIn.value);
+  const lat = parseFloat(latIn.value);
+  if (!isFinite(lon) || !isFinite(lat)) {
+    hintEl.textContent = '还没有坐标 —— 选个地点,或者手动填经纬度';
+    hintEl.className = 'hint bad';
+    return;
+  }
+  if (lon < -180 || lon > 180 || lat < -90 || lat > 90) {
+    hintEl.textContent = '经纬度超出范围了(经度 ±180,纬度 ±90)';
+    hintEl.className = 'hint bad';
+    return;
+  }
+
+  const hit = LOCATIONS.find((l) => l.name === cityIn.value.trim());
+  const city = hit ? hit.city : `${lat.toFixed(3)}, ${lon.toFixed(3)}`;
+
+  const payload = {
+    name, emoji: pickedEmoji, lon, lat, city,
+    status: statusIn.value.trim() || '在线',
+  };
+
+  // 落到名单里:编辑就原地覆盖,新增就追加到末尾
+  const targetIdx = (editingIdx !== null) ? editingIdx : FRIENDS.length;
+  if (editingIdx !== null) {
+    FRIENDS[editingIdx] = payload;
+  } else {
+    FRIENDS.push(payload);
+  }
+
+  saveFriends();
+  renderFriends();
+  closeModal();          // closeModal 会清空 editingIdx,所以得排在前面几行之后
+
+  map.flyTo([lat, lon], 5, { duration: 1.4 });
+  setTimeout(() => markerList[targetIdx] && markerList[targetIdx].openPopup(), 1500);
+});
+
+// ===============================================================
+//  右键菜单:编辑资料 / 定位过去 / 从地图移除
+// ===============================================================
+const ctxEl = document.getElementById('ctxmenu');
+let ctxIdx = null;
+
+function showCtx(x, y, idx) {
+  ctxIdx = idx;
+  ctxEl.classList.add('show');
+  // 先显示再量尺寸,免得菜单贴着屏幕右边被切掉
+  const w = ctxEl.offsetWidth, h = ctxEl.offsetHeight;
+  ctxEl.style.left = Math.max(6, Math.min(x, window.innerWidth  - w - 8)) + 'px';
+  ctxEl.style.top  = Math.max(6, Math.min(y, window.innerHeight - h - 8)) + 'px';
+}
+
+function hideCtx() {
+  ctxEl.classList.remove('show');
+  ctxIdx = null;
+}
+
+ctxEl.addEventListener('click', (e) => {
+  const btn = e.target.closest('button');
+  if (!btn || ctxIdx === null) return;
+
+  const idx = ctxIdx;
+  const f = FRIENDS[idx];
+  const act = btn.dataset.act;
+  hideCtx();
+
+  if (act === 'edit') {
+    openModal(f, idx);
+
+  } else if (act === 'pan') {
+    map.flyTo([f.lat, f.lon], 5, { duration: 1.1 });
+    setTimeout(() => markerList[idx] && markerList[idx].openPopup(), 1150);
+
+  } else if (act === 'del') {
+    if (!confirm(`把「${f.name}」从地图上移除?`)) return;
+    FRIENDS.splice(idx, 1);
+    saveFriends();
+    renderFriends();
+  }
+});
+
+// 点别处、空白处右键、拖动地图、按 ESC —— 都关掉菜单
+document.addEventListener('click', hideCtx);
+document.addEventListener('contextmenu', (e) => {
+  if (!e.target.closest('#ctxmenu')) hideCtx();
+});
+map.on('movestart zoomstart', hideCtx);
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') hideCtx();
+});
+
+// ===============================================================
+//  开场:全球视野停一下,再飞向所有朋友
+// ===============================================================
+setTimeout(() => {
+  if (!FRIENDS.length) return;
+  const pts = FRIENDS.map((f) => [f.lat, f.lon]);
+  if (pts.length === 1) {
+    map.flyTo(pts[0], 5, { duration: 2.6 });
+  } else {
+    map.flyToBounds(L.latLngBounds(pts), { padding: [90, 90], duration: 2.6, maxZoom: 6 });
+  }
+}, 900);
+</script>
+
+</body>
+</html>
