@@ -1,0 +1,55 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Install CJK fonts
+        run: sudo apt-get update && sudo apt-get install -y fonts-noto-cjk
+
+      # tiles_xyz / tiles_tms 是生成物且不进版本库,CI 里从源图重新生成,
+      # 保证集成测试拿到的是「本仓库脚本当前产出的」数据。
+      - name: Build tile artifacts
+        run: |
+          python gen_source.py
+          python slice_tiles.py
+          python convert_tiles.py
+
+      # 接口组依赖内网 VM 上的 Apache,公开 runner 访问不到,
+      # conftest 会自动把这一组 skip 掉(本地配好 TILE_BASE_URL 才会真正执行)。
+      - name: Run tests
+        run: python -m pytest -q --alluredir=allure-results
+
+      - name: Generate Allure report
+        if: always()
+        run: |
+          npm install -g allure-commandline
+          allure generate allure-results -o allure-report --clean
+
+      - name: Upload Allure report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: allure-report
+          path: allure-report/
+          retention-days: 14

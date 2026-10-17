@@ -42,9 +42,22 @@ def lat_to_px(lat, size=SIZE):
 
 
 def load_font(px):
-    """找一个能显示中文的字体,找不到就退回 PIL 默认位图字体。"""
-    for name in ("msyh.ttc", "simhei.ttf", "simsun.ttc"):
-        path = os.path.join(os.environ.get("WINDIR", r"C:\Windows"), "Fonts", name)
+    """找一个能显示中文的字体,找不到就退回 PIL 默认位图字体。
+
+    候选路径同时覆盖 Windows / Linux(CI 用 fonts-noto-cjk) / macOS。
+    """
+    candidates = []
+    windir = os.environ.get("WINDIR")
+    if windir:
+        for name in ("msyh.ttc", "simhei.ttf", "simsun.ttc"):
+            candidates.append(os.path.join(windir, "Fonts", name))
+    candidates += [
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
+        "/System/Library/Fonts/PingFang.ttc",
+    ]
+    for path in candidates:
         if os.path.exists(path):
             return ImageFont.truetype(path, px)
     return ImageFont.load_default()

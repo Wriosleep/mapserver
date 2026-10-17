@@ -21,6 +21,11 @@ source/
 # ---- Python ----
 __pycache__/
 *.py[cod]
+.pytest_cache/
+
+# ---- 测试报告(生成物,由 CI 或本地 pytest 产出) ----
+allure-results/
+allure-report/
 
 # ---- 编辑器 / 系统 ----
 .vscode/
