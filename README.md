@@ -453,5 +453,7 @@ allure generate allure-results -o allure-report --clean
 2. 接口层 16 条在公开 runner 上**恒为 skip**(访问不到内网 VM),这是设计,不是漏测;
 3. Allure 报告作为 artifact 保留 14 天。
 
+> ✅ 2026-10-28 推送 `9722b2b` 后首次远端运行**通过**。注意 CI 上接口层恒为 skip,**CI 绿 ≠ 73 条全过**。
+
 未覆盖的层级:L3 系统测试(手工)、L4 性能(ab/wrk 未跑)、L5 前端(Playwright 未接)、DEM 三维环节。
 
