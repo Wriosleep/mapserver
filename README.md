@@ -382,9 +382,14 @@ window.LOCATIONS = [
 
 论文只讲了"怎么搭",没讲"怎么验"。这一章是相对论文的净增量:**给整条链路补一套能反复跑的自动化测试**。
 
-当前状态:`73 条用例 = 55 通过 + 16 skip(接口层,虚拟机未启动)+ 2 xfail(已确认缺陷)`,本地耗时约 10 秒。
+当前状态(两种环境各有一组数字,都对):
 
-> ⚠️ 对外表述时注意:16 条 skip 是**环境未就绪**,不是通过;2 条 xfail 是**缺陷存在**,不是通过。详见 [《项目价值》](docs/项目价值.md) 第四节。
+| 环境 | 结果 | 耗时 |
+|---|---|---|
+| 虚拟机就绪 | **70 通过 / 1 skip / 2 xfail / 0 失败** | 约 11 s |
+| 虚拟机未启动 | 55 通过 / 16 skip / 2 xfail / 0 失败 | 约 8~13 s |
+
+> ⚠️ 表述时先报环境再报数字,且**不能说成"73 条全过"**:16 条 skip(或虚拟机就绪时的 1 条)是环境/条件不满足,2 条 xfail 是**缺陷确认存在**,两者都不是通过。详见 [《项目价值》](docs/项目价值.md) 第四节。
 
 | 文档 | 内容 |
 |---|---|
@@ -401,8 +406,11 @@ pip install -r requirements.txt          # pytest / requests / Pillow / allure-p
 python -m pytest                          # 全部(接口层不可达时自动 skip)
 python -m pytest tests/test_unit.py tests/test_integration.py   # 只跑本地链路,不需要虚拟机
 
-# 虚拟机就绪后跑接口层(16 条)
+# 虚拟机就绪后:跑接口层(建议先 curl 确认通,再跑测试)
 TILE_BASE_URL=http://192.168.247.129/tiles python -m pytest tests/test_api.py
+
+# 虚拟机就绪后跑全量
+TILE_BASE_URL=http://192.168.247.129/tiles python -m pytest
 
 # 生成 Allure 报告
 python -m pytest --alluredir=allure-results
@@ -415,7 +423,7 @@ allure generate allure-results -o allure-report --clean
 |---|---|:-:|---|---|
 | L0 单元 | `test_unit.py` | 43 | 无 | 翻转公式、墨卡托投影、切片契约(纯函数) |
 | L1 集成 | `test_integration.py` | 12 | `tiles_xyz` / `tiles_tms` | 磁盘产物的数量、命名、内容一致性 |
-| L2 接口 | `test_api.py` | 16 | VM 上的 Apache | HTTP 状态码、响应头、字节保真、路径穿越 |
+| L2 接口 | `test_api.py` | 16 | VM 上的 Apache | HTTP 状态码、响应头、字节保真、路径穿越(就绪后 15 通过 + 1 skip) |
 | 缺陷回归 | `test_defects.py` | 2 | 无 | 已确认缺陷的复现路径(xfail) |
 
 切层依据是**运行成本 × 外部依赖**,不是代码目录。原则:能在下层测的绝不往上推——翻转公式用 `f(f(y)) == y` 就能验完,不需要真产生 1365 个文件。
